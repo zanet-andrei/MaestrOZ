@@ -1,0 +1,182 @@
+local
+   PassedTests = {Cell.new 0}
+   TotalTests  = {Cell.new 0}
+
+   % Time in seconds corresponding to 5 samples.
+   FiveSamples = 0.00011337868
+
+   % Takes a list of samples, round them to 4 decimal places and multiply them by
+   % 10000. Use this to compare list of samples to avoid floating-point rounding
+   % errors.
+   fun {Normalize Samples}
+      {Map Samples fun {$ S} {IntToFloat {FloatToInt S*10000.0}} end}
+   end
+
+   proc {Assert Cond Msg}
+      TotalTests := @TotalTests + 1
+      if {Not Cond} then
+         {System.show Msg}
+      else
+         PassedTests := @PassedTests + 1
+      end
+   end
+
+   proc {AssertEquals A E Msg}
+      TotalTests := @TotalTests + 1
+      if A \= E then
+         {System.show Msg}
+         {System.show actual(A)}
+         {System.show expect(E)}
+      else
+         PassedTests := @PassedTests + 1
+      end
+   end
+
+   % Prevent warnings if these are not used.
+   {ForAll [FiveSamples Normalize Assert AssertEquals] Wait}
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   % TEST PartitionToTimedNotes
+
+   proc {TestNotes P2T}
+      {AssertEquals {P2T [b b c5 d5 d5]} [note(name:b octave:4 sharp:false instrument:none duration:1.0) note(name:b sharp:false octave:4 instrument:none duration:1.0) note(name:c octave:5 sharp:false instrument:none duration:1.0) note(name:d octave:5 sharp:false instrument:none duration:1.0) note(name:d octave:5 sharp:false instrument:none duration:1.0)] 'Assert notes'}
+   end
+
+   proc {TestChords P2T}
+      {AssertEquals {P2T [[duration(seconds:5.0 [b]) duration(seconds:5.0 [c])]]} [[note(name:b octave:4 sharp:false duration:5.0 instrument:none) note(name:c octave:4 sharp:false duration:5.0 instrument:none)]] 'Assert chord'}
+   end
+
+   proc {TestIdentity P2T}
+      % test that extended notes and chord go from input to output unchanged
+      skip
+   end
+
+   proc {TestDuration P2T}
+      {AssertEquals {P2T [duration(seconds:5.0 [b c])]} [note(name:b octave:4 duration:2.5 sharp:false instrument:none) note(name:c octave:4 duration:2.5 sharp:false instrument:none)] 'Assert duration'}
+   end
+
+   proc {TestStretch P2T}
+      {AssertEquals {P2T [stretch(factor:2.0 [b])]} [note(name:b octave:4 sharp:false duration:2.0 instrument:none)] 'Assert stretch'}
+   end
+
+   proc {TestDrone P2T}
+      {AssertEquals {P2T [drone(note:[a] amount:2)]} [note(name:a octave:4 sharp:false duration:1.0 instrument:none) note(name:a octave:4 sharp:false duration:1.0 instrument:none)] 'Assert drone'}
+   end
+
+   proc {TestTranspose P2T}
+      {AssertEquals {P2T [transpose(semitones:4 [b])]} [note(name:d octave:5 sharp:true duration:1.0 instrument:none)] 'Assert transpose +4 semitones on b'}
+   end
+
+   proc {TestP2TChaining P2T}
+      {AssertEquals {P2T [drone(amount:2 note:[drone(amount:2 note:[b])])]} [note(name:b sharp:false octave:4 duration:1.0 instrument:none) note(name:b sharp:false octave:4 duration:1.0 instrument:none) note(name:b sharp:false octave:4 duration:1.0 instrument:none) note(name:b sharp:false octave:4 duration:1.0 instrument:none)] 'Assert drone compose'}
+      {AssertEquals {P2T [stretch(factor:2.0 [duration(seconds:3.0 [b])])]} [note(name:b sharp:false octave:4 duration:6.0 instrument:none)] 'Chain P2T double stretch'}
+      {AssertEquals {P2T [transpose(semitones:4 [stretch(factor:2.0 [duration(seconds:5.0 [b])])])]} [note(name:d octave:5 sharp:true duration:10.0 instrument:none)] 'Assert chain transpose stretch P2T'}
+   end
+
+   proc {TestEmptyChords P2T}
+      {AssertEquals {P2T [transpose(semitones:4 [b]) [nil] b c]} [note(name:d sharp:true octave:5 duration:1.0 instrument:none) [silence(duration:0.0)] note(duration:1.0 instrument:none octave:4 name:b sharp:false) note(duration:1.0 instrument:none name:c octave:4 sharp:false)] 'Assert empty chords'}
+   end
+      
+   proc {TestP2T P2T}
+      {TestNotes P2T}
+      {TestChords P2T}
+      {TestIdentity P2T}
+      {TestDuration P2T}
+      {TestStretch P2T}
+      {TestDrone P2T}
+      {TestTranspose P2T}
+      {TestP2TChaining P2T}
+      {TestEmptyChords P2T}   
+      {AssertEquals {P2T nil} nil 'nil partition'}
+   end
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   % TEST Mix
+
+   proc {TestSamples P2T Mix}
+      % samples(X)
+      {AssertEquals {Mix P2T [samples([0 ~0.52059 ~0.103552 ~0.103552 ~0.202614])]} [0 ~0.52059 ~0.103552 ~0.103552 ~0.202614] 'Assert samples([_])'}
+   end
+
+   proc {TestPartition P2T Mix}
+      % partition([Partition])
+      %{AssertEquals {P2T [duration(seconds:FiveSamples [a])]} [note(name:a octave:4 sharp:false duration:FiveSamples instrument:none) 'Assert partition 1'}
+      {AssertEquals {Normalize {Mix P2T [partition([duration(seconds:FiveSamples [a])])]}} {Normalize [0.0 0.0313183 0.0625135 0.0934633 0.124046]} 'Assert partition'}
+   end
+
+   proc {TestWave P2T Mix}
+      skip
+   end
+
+   proc {TestMerge P2T Mix}
+      % merge(X) where X is list of Factor#Part
+      % [merge(3.0#[samples([1.0 2.0 3.0])] 4.0#[samples([1.0 2.0 3.0])])]
+      {AssertEquals {Mix P2T [merge([3.0#[samples([1.0 2.0 3.0])] 4.0#[samples([1.0 2.0 3.0])]])]} [7.0 14.0 21.0] 'Assert merge'}
+   end
+
+   proc {TestReverse P2T Mix}
+      % reverse(X)
+      {AssertEquals {Mix P2T [reverse([samples([1.0 2.0 3.0])])]} [3.0 2.0 1.0] 'Assert reverse'}
+   end
+
+   proc {TestRepeat P2T Mix}
+      % repeat(amount:X Y)
+      {AssertEquals {Mix P2T [repeat(amount:2 [samples([1.0 2.0 3.0])])]} [1.0 2.0 3.0 1.0 2.0 3.0] 'Assert repeat'}
+   end
+
+   proc {TestLoop P2T Mix}
+      % loop(duration:S X)
+      % [loop(duration:FiveSamples [samples([0.0 1.0 2.0])])]
+      {AssertEquals {Mix P2T [loop(duration:FiveSamples [samples([0.0 1.0 2.0])])]} [0.0 1.0 2.0 0.0 1.0] 'Assert loop'}
+   end
+
+   proc {TestClip P2T Mix}
+      % clip(low:Low high:High X)
+      {AssertEquals {Mix P2T [clip(low:~0.5 high:0.5 [samples([~3.0 ~0.5 0.0 0.5 3.0])])]} [~0.5 ~0.5 0.0 0.5 0.5] 'Assert clip'}
+   end
+
+   proc {TestEcho P2T Mix}
+      % echo(delay:S decay:D X)
+      skip
+   end
+
+   proc {TestFade P2T Mix}
+      % fade(start:A out:B X) (adds linear intensity in intervals [0, A] and [SongLength-B, B])
+      % [fade(start:FiveSamples out:FiveSamples [samples([5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0 5.0])])]
+      {AssertEquals {Normalize {Mix P2T [fade(start:FiveSamples out:FiveSamples [samples([1.0 1.0 1.0 1.0 1.0 5.0 5.0 5.0 5.0 5.0 2.0 2.0 2.0 2.0 2.0])])]}} [0.0 2000.0 4000.0 6000.0 8000.0 50000.0 50000.0 50000.0 50000.0 50000.0 16000.0 12000.0 8000.0 4000.0 0.0] 'Assert fade'}
+   end
+
+   proc {TestCut P2T Mix}
+      % cut(start:A finish:B X) (keeps intervals [A, B] of song and trims all else)
+      skip
+   end
+
+   proc {TestMix P2T Mix}
+      {TestSamples P2T Mix}
+      {TestPartition P2T Mix}
+      {TestWave P2T Mix}
+      {TestMerge P2T Mix}
+      {TestReverse P2T Mix}
+      {TestRepeat P2T Mix}
+      {TestLoop P2T Mix}
+      {TestClip P2T Mix}
+      {TestEcho P2T Mix}
+      {TestFade P2T Mix}
+      {TestCut P2T Mix}
+      {AssertEquals {Mix P2T nil} nil 'nil music'}
+   end
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   proc {Test Mix P2T}
+      {Property.put print print(width:100)}
+      {Property.put print print(depth:100)}
+      {System.show 'tests have started'}
+      {TestP2T P2T}
+      {System.show 'P2T tests have run'}
+      {TestMix P2T Mix}
+      {System.show 'Mix tests have run'}
+      {System.show test(passed:@PassedTests total:@TotalTests)}
+   end
+
+end
